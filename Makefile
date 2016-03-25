@@ -1,8 +1,5 @@
 all:
-	gcc -std=gnu99 -Wall -Wextra -Werror -pedantic webclient.cpp -o webclient -lpthread
+	g++ -Wall -Wextra -Werror -o webclient webclient.cpp 
 
-
-
-
-
-lel
+clean:
+	rm webclient
