@@ -67,24 +67,20 @@ int main(int argc, char **argv)
 
   char reply[1000];
   char request[1000];
-  sprintf(request, "Get %s HTTP/1.1\r\n Host: %s\r\n \r\n \r\n", "www.fit.vutbr.cz", "/common/img/fit_logo_cz.gif");
-  while(true)
-    {
-        if( send(mysocket, request, strlen(request), 0) == -1) //try to send message
-        {
-          cerr << "Could not send message" << endl;
-          return -1;
-        }
+  sprintf(request, "HEAD %s HTTP/1.1\r\nHost: %s\r\nConnection: close \r\n\r\n", "/common/img/fit_logo_cz.gif", "www.fit.vutbr.cz");
 
-        if( recv(mysocket, reply, 2000, 0) == -1)     //listen for response
-        {
-          cerr << "No response" << endl;
-          return -1;
-        }
-        cout << reply << endl;
-        getchar();
-    }
 
+  if( send(mysocket, request, strlen(request), 0) == -1) //try to send message
+  {
+    cerr << "Could not send message" << endl;
+    return -1;
+  }
+
+  if ((recv(mysocket, reply, 999, 0)) == -1)
+  {
+    cerr << "No message received" << endl;
+  }
+  cout << reply << endl;
   //close(mysocket);
   cout << argv[0] << ":" << argc <<":" << mysocket << endl; //TODO: DELETE THIS
 
