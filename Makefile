@@ -1,5 +1,5 @@
 all:
-	g++ -Wall -Wextra -Werror -o webclient webclient.cpp 
+	g++ -Wall -Wextra -o webclient webclient.cpp 
 
 clean:
 	rm webclient
