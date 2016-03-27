@@ -11,29 +11,44 @@
 #include <arpa/inet.h>
 #include <string.h>
 #include <errno.h>
-
+#include <regex>
 using namespace std;
 
-const string DEFAULT_FILE_NAME = "index.html";
-const char* FIT = "http://www.fit.vutbr.cz";
 
-// /**
-// * Function handle error messages and exit programme with proper error code
-// */
-// void err (string text, int code)
-// {
-//   cerr << "ERR" << text <<endl;
-//   exit(code);
-// }
+// http:\/\/.+:([[:digit:]]+)          port number
+// ^http:\/\/.+\/(.+)$                 some\ text.txt
+// http:\/\/([\w\.]*)\/                www.fit.vutbr.cz
+// http:\/\/.*(\/[\w\.\/]*\/)          /study/courses/IPK/public/
+
+
+regex URL_RGX ("http:\\/\\/([\\w\\.]*)\\/");
+regex PATH_RGX ("http:\\/\\/.*(\\/[\\w\\.\\/]*\\/)");
+regex FILENAME_RGX ("^http:\\/\\/.+\\/(.+)$");
+regex PORT_NUMBER_RGX ("http:\\/\\/.+:([[:digit:]]+)");
+
+const string DEFAULT_FILE_NAME = "index.html";
+const string FIT = "http://www.fit.vutbr.cz";
 
 int main(int argc, char **argv)
 {
   // if (argc != 2) {
-  //     err("webclient needs exactly one argument - url",-1);
-  //
+  //   cerr << "invalid number if arguments" << endl;
+  //   return -1;
+  // }
 
-  // hostent returned by gethostbyname contains
-  // ip address translated from domain name
+  cmatch m;
+
+  if(regex_match ("http://www.fit.vutbr.cz:80/common/img/fit_logo_cz.gif",m,PORT_NUMBER_RGX)) {
+    for (unsigned int i = 0; i < m.size(); i++) {
+      cout << m.str(i) << endl;
+    }
+  }
+  else
+    cout << "no match" << endl;
+
+  return 0;
+
+
   struct hostent *web_address;
   web_address = gethostbyname("www.fit.vutbr.cz");
 
@@ -65,8 +80,8 @@ int main(int argc, char **argv)
     return -1;
   }
 
-  char reply[1000];
-  char request[1000];
+  char reply[1000];         // buffer fo response
+  char request[1000];       // buffer which holds message to be sent
   sprintf(request, "HEAD %s HTTP/1.1\r\nHost: %s\r\nConnection: close \r\n\r\n", "/common/img/fit_logo_cz.gif", "www.fit.vutbr.cz");
 
 
@@ -76,12 +91,13 @@ int main(int argc, char **argv)
     return -1;
   }
 
-  if ((recv(mysocket, reply, 999, 0)) == -1)
+  if ((recv(mysocket, reply, 999, 0)) == -1)            // receive data
   {
     cerr << "No message received" << endl;
+    return -1;
   }
-  cout << reply << endl;
   //close(mysocket);
+  cout << reply << endl;
   cout << argv[0] << ":" << argc <<":" << mysocket << endl; //TODO: DELETE THIS
 
 
