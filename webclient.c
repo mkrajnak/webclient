@@ -13,12 +13,9 @@
 #include <errno.h>
 #include <regex.h>
 
-// http:\/\/.+:([[:digit:]]+)          port number
-// ^http:\/\/.+\/(.+)$                 some\ text.txt
-// http:\/\/([\w\.]*)\/                www.fit.vutbr.cz
-// http:\/\/.*(\/[\w\.\/]*\/)          /study/courses/IPK/public/
-
-
+/**
+* REGEXES
+*/
 #define URL_RGX "http:\\/\\/([\\w\\.]*)\\/"
 #define PATH_RGX "http:\\/\\/.*(\\/[\\w\\.\\/]*\\/)"
 #define FILENAME_RGX "^http:\\/\\/.+\\/(.+)$"
