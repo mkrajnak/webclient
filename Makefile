@@ -1,5 +1,5 @@
 all:
-	clang++ -std=c++11 -Wall -Wextra -o webclient webclient.cpp 
+	gcc -Wall -Wextra -pedantic -o webclient webclient.c 
 
 clean:
 	rm webclient
