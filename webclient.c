@@ -24,7 +24,8 @@
 #define DEFAULT_FILE_NAME "index.html"
 #define FIT "http://www.fit.vutbr.cz/study/courses/IPK/public/some\\ text.txt"
 
-
+#define HTTPV11 "1.1"
+#define HTTPV10 "1.0"
 struct url_info_t{
   char * basic_url;
   char * filename;
@@ -143,8 +144,9 @@ int main(int argc, char **argv)
   dest.sin_port = htons(80);                            // set destination port
 
   if(connect(mysocket, (struct sockaddr *)&dest, sizeof(struct sockaddr)) == -1 )
+  fprintf(stderr,"ERR: %s\n", strerror(errno));
+  return -1;
   {
-    return -1;
   }
 
   char reply[1000];         // buffer fo response
