@@ -108,22 +108,21 @@ char * whitespaces(char * url)
   }
 
   char *result;                                       //alloc space for string
-  if (( result = (char*)malloc(strlen(url)+10)) == NULL){
+  if (( result = (char*)malloc(sizeof(url)+10)) == NULL){
      fprintf(stderr, "Allocation error\n" );
   return NULL;
-  }
+   }
+  regmatch_t matches[5];
+  if(!regexec (&r, url, 1, matches, 0)) {                     // try to match
 
-  regmatch_t matches[1];
-  if(regexec (&r, url, 1, matches, 0)) {                     // try to match
-    return url;
-  }
+    printf("lel\n" );
     strncpy(result,&url[0],matches[0].rm_so);
     strcat(result,"%20");
     strcat(result,&url[matches[0].rm_so + 1]);
-
-    regfree(&r);
-    return result;
-
+    printf("%s\n",result);
+  }
+  return result;
+  regfree(&r);
 }
 
 
@@ -150,11 +149,8 @@ int main(int argc, char **argv)
   // free(url->filename);
   // free(url);
 
-  char * new_url = whitespaces (argv[1]);
-  new_url = whitespaces (new_url);
-  printf("%s\n", new_url);
+  printf("%s\n", whitespaces (argv[1]));
 
-  free(new_url);
   return 0;
 
   struct hostent *web_address;
