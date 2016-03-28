@@ -17,15 +17,15 @@
 * REGEXES
 */
 #define URL_RGX "(www.[a-zA-z0-9\\.]*)"
-#define PATH_RGX "http:\\/\\/.*(\\/[\\w\\.\\/]*\\/)"
 #define FILENAME_RGX "([0-9A-Za-z\\.\\_\\ ]*)$"
 #define PORT_NUMBER_RGX "(:{1}[0-9]+)"
+#define WHITE_SPACE "[\\ ]"
 
 #define DEFAULT_FILE_NAME "index.html"
-#define FIT "http://www.fit.vutbr.cz/study/courses/IPK/public/some\\ text.txt"
 
 #define HTTPV11 "1.1"
 #define HTTPV10 "1.0"
+
 struct url_info_t{
   char * basic_url;
   char * filename;
@@ -33,18 +33,18 @@ struct url_info_t{
 };
 
 /*
-* FUnction returns string matches by regex
+* Fnction returns string matches by regex
 */
 char * apply_rgx(char * rgx, char * string)
 {
     regex_t r;
-    if ((regcomp (&r, rgx, REG_EXTENDED|REG_NEWLINE)) != 0 ) { // compile regex
+    if ((regcomp (&r, rgx, REG_EXTENDED|REG_NEWLINE)) != 0 ) {    // compile regex
       fprintf(stderr, "FAILED\n" );
       return NULL;
     }
 
     regmatch_t matches[1];
-    if (regexec (&r, FIT, 1, matches, 0)) {                     // try to match
+    if (regexec (&r, string, 1, matches, 0)) {                     // try to match
       fprintf(stderr, "NO MATCH\n" );
       return NULL;
     }
@@ -67,10 +67,11 @@ char * apply_rgx(char * rgx, char * string)
 /*
 * Parse url string to struct
 */
-int parse_url(struct url_info_t * url)
+int parse_url(struct url_info_t * url, char * s_url)
 {
-  url->basic_url = apply_rgx(URL_RGX,FIT);
-  url->filename = apply_rgx(FILENAME_RGX,FIT);
+  url->basic_url = apply_rgx(URL_RGX, s_url);
+  url->filename = apply_rgx(FILENAME_RGX, s_url);
+
 
   if (!strcmp(url->filename, "") || !strcmp(url->filename, url->basic_url )) {
     if (( url->filename = (char*)malloc(2)) == NULL){
@@ -95,6 +96,36 @@ char *get_version (char *reply)
   return version;
 }
 
+/**
+* Detect and repair white spaces
+*/
+char * whitespaces(char * url)
+{
+  regex_t r;
+  if ((regcomp (&r, WHITE_SPACE, REG_EXTENDED|REG_NEWLINE)) != 0 ) {    // compile regex
+    fprintf(stderr, "FAILED\n" );
+    return NULL;
+  }
+
+  char *result;                                       //alloc space for string
+  if (( result = (char*)malloc(sizeof(url)+10)) == NULL){
+     fprintf(stderr, "Allocation error\n" );
+  return NULL;
+   }
+  regmatch_t matches[1];
+  if(!regexec (&r, url, 1, matches, 0)) {                     // try to match
+
+    printf("lel\n" );
+    strncpy(result,&url[0],matches[0].rm_so);
+    strcat(result,"%20");
+    strcat(result,&url[matches[0].rm_so + 1]);
+    printf("%s\n",result);
+  }
+  return result;
+  regfree(&r);
+}
+
+
 int main(int argc, char **argv)
 {
   // if (argc != 2) {
@@ -107,22 +138,26 @@ int main(int argc, char **argv)
   //   fprintf(stderr, "Alloc error\n" );
   //   return -1;
   // }
-  // parse_url(url);
-  // printf("%d\n",url->port_number );
-  // printf("%s\n",url->basic_url );
-  // printf("%s\n",url->filename );
+  // printf("%s\n", argv[1] );
+  // parse_url(url, argv[1]);
+  //
+  // printf("%d \n",url->port_number );
+  // printf("%s \n",url->basic_url );
+  // printf("%s \n",url->filename );
   //
   // free(url->basic_url);
   // free(url->filename);
   // free(url);
-  //
-  // return 0;
+
+  whitespaces (argv[1]);
+
+  return 0;
 
   struct hostent *web_address;
   web_address = gethostbyname("www.fit.vutbr.cz");
 
   if ( web_address == NULL) {                         //check if translation was succesfull
-    fprintf(stderr,"DNS error\n");
+    fprintf(stderr,"ERR: %s\n", strerror(errno));
     return -1;
   }
   // in_addr is struct required by inet_ntoa
@@ -133,7 +168,7 @@ int main(int argc, char **argv)
 
   int mysocket;
    if((mysocket = socket(AF_INET, SOCK_STREAM, 0)) == -1) { // creating socket
-     fprintf(stderr,"Could not create socket\n");
+     fprintf(stderr,"ERR: %s\n", strerror(errno));
      return -1;
    }
 
@@ -144,9 +179,9 @@ int main(int argc, char **argv)
   dest.sin_port = htons(80);                            // set destination port
 
   if(connect(mysocket, (struct sockaddr *)&dest, sizeof(struct sockaddr)) == -1 )
-  fprintf(stderr,"ERR: %s\n", strerror(errno));
-  return -1;
   {
+    fprintf(stderr,"ERR: %s\n", strerror(errno));
+    return -1;
   }
 
   char reply[1000];         // buffer fo response
@@ -156,13 +191,13 @@ int main(int argc, char **argv)
 
   if( send(mysocket, request, strlen(request), 0) == -1) //try to send message
   {
-    fprintf(stderr,"Could not send message\n");
+    fprintf(stderr,"ERR: %s\n", strerror(errno));
     return -1;
   }
 
   if ((recv(mysocket, reply, 999, 0)) == -1)            // receive data
   {
-    fprintf(stderr,"Nothing received\n");
+    fprintf(stderr,"ERR: %s\n", strerror(errno));
     return -1;
   }
 
