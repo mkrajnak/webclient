@@ -148,10 +148,10 @@ int main(int argc, char **argv)
   // free(url->basic_url);
   // free(url->filename);
   // free(url);
-
-  printf("%s\n", whitespaces (argv[1]));
-
-  return 0;
+  //
+  // printf("%s\n", whitespaces (argv[1]));
+  //
+  // return 0;
 
   struct hostent *web_address;
   web_address = gethostbyname("www.fit.vutbr.cz");
