@@ -23,7 +23,7 @@
 
 #define DEFAULT_FILE_NAME "index.html"
 #define DEFAULT_PORT_NUMBER 80
-#define FIT "http://www.fit.vutbr.cz:80/common/img/fit_logo_cz.gif"
+#define FIT "www.fit.vutbr.cz"
 #define PREFIX "http://"
 #define SLASH '/'
 #define SLASH_STR "/"
@@ -57,22 +57,21 @@ char * apply_rgx(char * rgx, char * string)
     }
 
     char *result;                                       //alloc space for string
-    if (( result = (char*)malloc(matches[0].rm_eo - matches[0].rm_so)) == NULL){
+    if (( result = (char*)malloc(strlen(&string[matches[0].rm_so])-1)) == NULL){
       fprintf(stderr, "Allocation error\n" );
       return NULL;
     }
     //copy result
     strncpy(result, &string[matches[0].rm_so], matches[0].rm_eo - matches[0].rm_so );
 
-    // printf("a matched substring \"%s\" is found at position %d to %d.\n",
+    //  printf("a matched substring \"%s\" is found at position %d to %d.\n",
     //        result, matches[0].rm_so, matches[0].rm_eo - 1);
 
     regfree(&r);
     return result;
 }
 /*
-* Find slash
-* if no slash is found in the url, default port and value is set
+* check whether certain character is present within string
 */
 int find_char(char *url, char ch)
 {
@@ -128,18 +127,9 @@ void set_port(struct url_info_t * url)
 */
 void set_default_values(struct url_info_t * url)
 {
-  if( (url->base_address = (char *)malloc(strlen(url->address))) == NULL){
-    fprintf(stderr, "Malloc err\n");
-  }
-  if( (url->filename = (char *)malloc(strlen(SLASH_STR))) == NULL){
-    fprintf(stderr, "Malloc err\n");
-  }
-  if( (url->path = (char *)malloc(strlen(SLASH_STR))) == NULL){
-    fprintf(stderr, "Malloc err\n");
-  }
-  strncpy(url->base_address, url->address,strlen(url->address));
-  strcpy(url->path,SLASH_STR );
-  strcpy(url->filename, DEFAULT_FILE_NAME);
+  url->base_address = apply_rgx(URL_RGX,url->address);
+  url->path = SLASH_STR ;
+  url->filename = DEFAULT_FILE_NAME;
 }
 /*
 * Parse url string to struct
@@ -152,17 +142,19 @@ int parse_url(struct url_info_t * url, char * url_str)
   else
     url->address = strstr(url_str,PREFIX) + strlen(PREFIX);
 
+  // shot url without slashes, setting default values
   if (strstr(url->address,SLASH_STR) == NULL){
-      url->path = SLASH_STR;
       set_default_values(url);
+      set_port(url);
       return 0;
   }
-  else
-    url->path = strstr(url->address,SLASH_STR);
+  //url with path and filename
+  url->path = strstr(url->address,SLASH_STR);
 
   int cut_filename = find_last_char_pos(url->address,SLASH);
   url->filename = cut_string(url->address, cut_filename, strlen(url->address) - cut_filename);
-  url->base_address =apply_rgx(URL_RGX,url->address);
+
+  url->base_address = apply_rgx(URL_RGX,url->address);
   set_port(url);
   return 0;
 }
@@ -221,13 +213,12 @@ int main(int argc, char **argv)
     return -1;
   }
    printf("%d\n", parse_url(url, argv[1]));
-  // printf("*************************\n" );
-   printf("%s \n",url->address );
-   printf("%s \n",url->base_address);
-   printf("%s \n",url->path );
-   printf("%s \n",url->filename);
-   printf("P: %d\n",url->port_number );
-   return 0;
+   printf("*************************\n" );
+   printf("ADD:\t%s \n",url->address );
+   printf("DNS:\t%s \n",url->base_address);
+   printf("PATH:\t%s \n",url->path );
+   printf("FILE\t%s \n",url->filename);
+   printf("Port:\t%d\n",url->port_number );
   // free(url->base_address);
   // free(url->filename);
   // free(url);
@@ -238,12 +229,18 @@ int main(int argc, char **argv)
   // printf("%d\n",check_prefix(argv[1]));
   // printf("%d\n",find_char(argv[1],SLASH));
   // return 0;
-
+  printf("%s\n",url->base_address );
   struct hostent *web_address;
-  web_address = gethostbyname(url->base_address);
+  if (!strcmp(url->base_address,FIT)){
+    web_address = gethostbyname(FIT);
+    printf("match\n" );
+    }
+  else
+    web_address = gethostbyname(url->base_address);
+
 
   if ( web_address == NULL) {                         //check if translation was succesfull
-    fprintf(stderr,"ERR: %s\n", strerror(errno));
+    fprintf(stderr,"DNSERR: %s\n", strerror(errno));
     return -1;
   }
   // in_addr is struct required by inet_ntoa
@@ -255,7 +252,7 @@ int main(int argc, char **argv)
 
   int mysocket;
    if((mysocket = socket(AF_INET, SOCK_STREAM, 0)) == -1) { // creating socket
-     fprintf(stderr,"ERR: %s\n", strerror(errno));
+     fprintf(stderr,"SOCKERR: %s\n", strerror(errno));
      return -1;
    }
 
@@ -263,11 +260,11 @@ int main(int argc, char **argv)
   memset(&dest, 0, sizeof(dest));                       // setting up struct for connect
   dest.sin_family = AF_INET;
   dest.sin_addr.s_addr = inet_addr(inet_ntoa(ip_addr)); // setting properly destination ip address
-  dest.sin_port = htons(80);                            // set destination port
+  dest.sin_port = htons(url->port_number);                            // set destination port
 
   if(connect(mysocket, (struct sockaddr *)&dest, sizeof(struct sockaddr)) == -1 )
   {
-    fprintf(stderr,"ERR: %s\n", strerror(errno));
+    fprintf(stderr,"CONNERR: %s\n", strerror(errno));
     return -1;
   }
 
@@ -277,13 +274,13 @@ int main(int argc, char **argv)
 
   if( send(mysocket, request, strlen(request), 0) == -1) //try to send message
   {
-    fprintf(stderr,"ERR: %s\n", strerror(errno));
+    fprintf(stderr,"SENDERR: %s\n", strerror(errno));
     return -1;
   }
 
   if ((recv(mysocket, reply, 999, 0)) == -1)            // receive data
   {
-    fprintf(stderr,"ERR: %s\n", strerror(errno));
+    fprintf(stderr,"RECVERR: %s\n", strerror(errno));
     return -1;
   }
   printf("***********************************\n" );
