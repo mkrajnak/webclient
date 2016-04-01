@@ -12,6 +12,7 @@
 #include <string.h>
 #include <errno.h>
 #include <regex.h>
+#include <ctype.h>
 
 /**
 * REGEXES
@@ -114,11 +115,11 @@ char * cut_string(char * old_url, int begin, int size)
 */
 void set_port(struct url_info_t * url)
 {
-  url->port_number = DEFAULT_PORT_NUMBER;
   char * port;
   if (( port = apply_rgx(PORT_NUMBER_RGX, url->address)) != NULL) {
     url->port_number = (int)strtol(&port[1], (char **)NULL, 10);
-  }
+  }else
+    url->port_number = DEFAULT_PORT_NUMBER;
 
 }
 
@@ -173,31 +174,10 @@ char *get_version (char *reply)
 /**
 * Detect and repair white spaces
 */
-char * whitespaces(char * url)
-{
-  regex_t r;
-  if ((regcomp (&r, WHITE_SPACE, REG_EXTENDED|REG_NEWLINE)) != 0 ) {    // compile regex
-    fprintf(stderr, "FAILED\n" );
-    return NULL;
-  }
-
-  char *result;                                       //alloc space for string
-  if (( result = (char*)malloc(sizeof(url)+10)) == NULL){
-     fprintf(stderr, "Allocation error\n" );
-  return NULL;
-   }
-  regmatch_t matches[5];
-  if(!regexec (&r, url, 1, matches, 0)) {                     // try to match
-
-    printf("lel\n" );
-    strncpy(result,&url[0],matches[0].rm_so);
-    strcat(result,"%20");
-    strcat(result,&url[matches[0].rm_so + 1]);
-    printf("%s\n",result);
-  }
-  return result;
-  regfree(&r);
-}
+// char * whitespaces(char * url)
+// {
+//   return NULL;
+// }
 
 
 int main(int argc, char **argv)
@@ -212,6 +192,7 @@ int main(int argc, char **argv)
     fprintf(stderr, "Alloc error\n" );
     return -1;
   }
+  //printf("%s\n", whitespaces (argv[1]));
    printf("%d\n", parse_url(url, argv[1]));
    printf("*************************\n" );
    printf("ADD:\t%s \n",url->address );
@@ -222,19 +203,16 @@ int main(int argc, char **argv)
   // free(url->base_address);
   // free(url->filename);
   // free(url);
-  // printf("%s\n", whitespaces (argv[1]));
 
   // printf("%ld\n", (int)strlen(FIT)-strlen(PREFIX));
   // printf("%s\n",cut_string(argv[1],7,strlen(FIT)-strlen(PREFIX)) );
   // printf("%d\n",check_prefix(argv[1]));
   // printf("%d\n",find_char(argv[1],SLASH));
   // return 0;
-  printf("%s\n",url->base_address );
+
   struct hostent *web_address;
-  if (!strcmp(url->base_address,FIT)){
+  if (!strcmp(url->base_address,FIT)) //hack for fit url
     web_address = gethostbyname(FIT);
-    printf("match\n" );
-    }
   else
     web_address = gethostbyname(url->base_address);
 
@@ -248,7 +226,6 @@ int main(int argc, char **argv)
   struct in_addr ip_addr;
   memcpy(&ip_addr, web_address->h_addr_list[0], sizeof(struct in_addr));
   printf("%s\n",inet_ntoa(ip_addr));
-
 
   int mysocket;
    if((mysocket = socket(AF_INET, SOCK_STREAM, 0)) == -1) { // creating socket
@@ -268,29 +245,49 @@ int main(int argc, char **argv)
     return -1;
   }
 
-  char reply[1000];         // buffer fo response
-  char request[1000];       // buffer which holds message to be sent
-  sprintf(request, "HEAD %s HTTP/1.1\r\nHost: %s\r\nConnection: close \r\n\r\n", url->path, url->base_address);
+   char reply[1024];         // buffer fo response
+   char request[1024];       // buffer which holds message to be sent
+  // sprintf(request, "HEAD %s HTTP/1.1\r\nHost: %s\r\nConnection: close \r\n\r\n", url->path, url->base_address);
+  //
+  // if( send(mysocket, request, strlen(request), 0) == -1) //try to send message
+  // {
+  //   fprintf(stderr,"SENDERR: %s\n", strerror(errno));
+  //   return -1;
+  // }
+  //
+  // if ((recv(mysocket, reply, 999, 0)) == -1)            // receive data
+  // {
+  //   fprintf(stderr,"RECVERR: %s\n", strerror(errno));
+  //   return -1;
+  // }
+  // printf("***********************************\n" );
+  // printf("%s\n",request );
+  // printf("***********************************\n" );
+  // printf("%s\n",reply );
 
+  // char * version = get_version(reply);
+  // printf("%s\n",version);
+  // printf("%s:%d\n",argv[0],argc );
+    memset(reply, 0, 1024);
+    memset(request, 0, 1024);
+    sprintf(request, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close \r\n\r\n", url->path, url->base_address);
   if( send(mysocket, request, strlen(request), 0) == -1) //try to send message
   {
     fprintf(stderr,"SENDERR: %s\n", strerror(errno));
     return -1;
   }
-
-  if ((recv(mysocket, reply, 999, 0)) == -1)            // receive data
-  {
-    fprintf(stderr,"RECVERR: %s\n", strerror(errno));
-    return -1;
-  }
-  printf("***********************************\n" );
+  printf("****************REQUEST*******************\n" );
   printf("%s\n",request );
-  printf("***********************************\n" );
-  printf("%s\n",reply );
-  char * version = get_version(reply);
-  printf("%s\n",version);
-  printf("%s:%d\n",argv[0],argc );
 
-  free(version);
+  FILE *f = fopen(url->filename,"w");
+  while ((recv(mysocket, reply, 999, 0)) > 0)            // receive data
+  {
+    printf("*****************REPLY******************\n" );
+    fprintf(f,"%s",reply);
+    memset(reply, 0, 1024);
+  }
+
+  fclose(f);
+  //free(version);
   return 0;
 }
