@@ -22,12 +22,19 @@
 #define WHITE_SPACE "[\\ ]"
 
 #define DEFAULT_FILE_NAME "index.html"
+#define DEFAULT_PORT_NUMBER 80
+#define FIT "http://www.fit.vutbr.cz:80/common/img/fit_logo_cz.gif"
+#define PREFIX "http://"
+#define SLASH '/'
+#define SLASH_STR "/"
 
 #define HTTPV11 "1.1"
 #define HTTPV10 "1.0"
 
 struct url_info_t{
-  char * basic_url;
+  char * address;
+  char * base_address;
+  char * path;
   char * filename;
   int port_number;
 };
@@ -45,7 +52,7 @@ char * apply_rgx(char * rgx, char * string)
 
     regmatch_t matches[1];
     if (regexec (&r, string, 1, matches, 0)) {                     // try to match
-      fprintf(stderr, "NO MATCH\n" );
+      //fprintf(stderr, "NO MATCH\n" );
       return NULL;
     }
 
@@ -55,7 +62,7 @@ char * apply_rgx(char * rgx, char * string)
       return NULL;
     }
     //copy result
-    strncpy(result, &string[matches[0].rm_so], matches[0].rm_eo - matches[0].rm_so);
+    strncpy(result, &string[matches[0].rm_so], matches[0].rm_eo - matches[0].rm_so );
 
     // printf("a matched substring \"%s\" is found at position %d to %d.\n",
     //        result, matches[0].rm_so, matches[0].rm_eo - 1);
@@ -63,25 +70,100 @@ char * apply_rgx(char * rgx, char * string)
     regfree(&r);
     return result;
 }
+/*
+* Find slash
+* if no slash is found in the url, default port and value is set
+*/
+int find_char(char *url, char ch)
+{
+  for (size_t i = 0; i < strlen(url); i++) {
+    if (url[i] == ch) {
+      return i; //FOUND
+    }
+  }
+  return -1;    //NOT FOUND
+}
 
+/*
+* Last char
+*/
+int find_last_char_pos(char *url, char ch)
+{
+  for (size_t i = strlen(url); i > 0; i--){
+    if (url[i] == ch) {
+      return i+1; //FOUND
+    }
+  }
+  return -1;    //NOT FOUND
+}
+
+/*
+* Cut url
+*/
+char * cut_string(char * old_url, int begin, int size)
+{
+  char *new_string = (char *) malloc(size);
+  memset(new_string,0,size);
+  memcpy(new_string, &old_url[begin], size);
+  new_string[size] = '\0';
+  return new_string;
+}
+
+
+/*
+* set the port values properly
+*/
+void set_port(struct url_info_t * url)
+{
+  url->port_number = DEFAULT_PORT_NUMBER;
+  char * port;
+  if (( port = apply_rgx(PORT_NUMBER_RGX, url->address)) != NULL) {
+    url->port_number = (int)strtol(&port[1], (char **)NULL, 10);
+  }
+
+}
+
+/*
+* Set default values for filename and base_address
+*/
+void set_default_values(struct url_info_t * url)
+{
+  if( (url->base_address = (char *)malloc(strlen(url->address))) == NULL){
+    fprintf(stderr, "Malloc err\n");
+  }
+  if( (url->filename = (char *)malloc(strlen(SLASH_STR))) == NULL){
+    fprintf(stderr, "Malloc err\n");
+  }
+  if( (url->path = (char *)malloc(strlen(SLASH_STR))) == NULL){
+    fprintf(stderr, "Malloc err\n");
+  }
+  strncpy(url->base_address, url->address,strlen(url->address));
+  strcpy(url->path,SLASH_STR );
+  strcpy(url->filename, DEFAULT_FILE_NAME);
+}
 /*
 * Parse url string to struct
 */
-int parse_url(struct url_info_t * url, char * s_url)
+int parse_url(struct url_info_t * url, char * url_str)
 {
-  url->basic_url = apply_rgx(URL_RGX, s_url);
-  url->filename = apply_rgx(FILENAME_RGX, s_url);
-
-
-  if (!strcmp(url->filename, "") || !strcmp(url->filename, url->basic_url )) {
-    if (( url->filename = (char*)malloc(2)) == NULL){
-      fprintf(stderr, "Allocation error\n" );
+  // get rid of http
+  if (strstr(url_str,PREFIX) == NULL)
       return -1;
-    }
-    strncpy(url->filename, "/", sizeof("/"));
+  else
+    url->address = strstr(url_str,PREFIX) + strlen(PREFIX);
+
+  if (strstr(url->address,SLASH_STR) == NULL){
+      url->path = SLASH_STR;
+      set_default_values(url);
+      return 0;
   }
-  //char * temp_port = apply_rgx(PORT_NUMBER_RGX,FIT);
-  url->port_number = 80;
+  else
+    url->path = strstr(url->address,SLASH_STR);
+
+  int cut_filename = find_last_char_pos(url->address,SLASH);
+  url->filename = cut_string(url->address, cut_filename, strlen(url->address) - cut_filename);
+  url->base_address =apply_rgx(URL_RGX,url->address);
+  set_port(url);
   return 0;
 }
 
@@ -128,33 +210,37 @@ char * whitespaces(char * url)
 
 int main(int argc, char **argv)
 {
-  // if (argc != 2) {
-  //   fprintf(stderr,"Invalid number of args\n");
-  //   return -1;
-  // }
-  // struct url_info_t  *url;
-  //
-  // if ((url = (struct url_info_t *)malloc(sizeof(struct url_info_t))) == NULL) {
-  //   fprintf(stderr, "Alloc error\n" );
-  //   return -1;
-  // }
-  // printf("%s\n", argv[1] );
-  // parse_url(url, argv[1]);
-  //
-  // printf("%d \n",url->port_number );
-  // printf("%s \n",url->basic_url );
-  // printf("%s \n",url->filename );
-  //
-  // free(url->basic_url);
+  if (argc != 2) {
+    fprintf(stderr,"Invalid number of args\n");
+    return -1;
+  }
+   struct url_info_t  *url;
+
+  if ((url = (struct url_info_t *)malloc(sizeof(struct url_info_t))) == NULL) {
+    fprintf(stderr, "Alloc error\n" );
+    return -1;
+  }
+   printf("%d\n", parse_url(url, argv[1]));
+  // printf("*************************\n" );
+   printf("%s \n",url->address );
+   printf("%s \n",url->base_address);
+   printf("%s \n",url->path );
+   printf("%s \n",url->filename);
+   printf("P: %d\n",url->port_number );
+   return 0;
+  // free(url->base_address);
   // free(url->filename);
   // free(url);
-  //
   // printf("%s\n", whitespaces (argv[1]));
-  //
+
+  // printf("%ld\n", (int)strlen(FIT)-strlen(PREFIX));
+  // printf("%s\n",cut_string(argv[1],7,strlen(FIT)-strlen(PREFIX)) );
+  // printf("%d\n",check_prefix(argv[1]));
+  // printf("%d\n",find_char(argv[1],SLASH));
   // return 0;
 
   struct hostent *web_address;
-  web_address = gethostbyname("www.fit.vutbr.cz");
+  web_address = gethostbyname(url->base_address);
 
   if ( web_address == NULL) {                         //check if translation was succesfull
     fprintf(stderr,"ERR: %s\n", strerror(errno));
@@ -165,6 +251,7 @@ int main(int argc, char **argv)
   struct in_addr ip_addr;
   memcpy(&ip_addr, web_address->h_addr_list[0], sizeof(struct in_addr));
   printf("%s\n",inet_ntoa(ip_addr));
+
 
   int mysocket;
    if((mysocket = socket(AF_INET, SOCK_STREAM, 0)) == -1) { // creating socket
@@ -186,8 +273,7 @@ int main(int argc, char **argv)
 
   char reply[1000];         // buffer fo response
   char request[1000];       // buffer which holds message to be sent
-  sprintf(request, "HEAD %s HTTP/1.1\r\nHost: %s\r\nConnection: close \r\n\r\n", "/common/img/fit_logo_cz.gif", "www.fit.vutbr.cz");
-
+  sprintf(request, "HEAD %s HTTP/1.1\r\nHost: %s\r\nConnection: close \r\n\r\n", url->path, url->base_address);
 
   if( send(mysocket, request, strlen(request), 0) == -1) //try to send message
   {
@@ -200,7 +286,10 @@ int main(int argc, char **argv)
     fprintf(stderr,"ERR: %s\n", strerror(errno));
     return -1;
   }
-
+  printf("***********************************\n" );
+  printf("%s\n",request );
+  printf("***********************************\n" );
+  printf("%s\n",reply );
   char * version = get_version(reply);
   printf("%s\n",version);
   printf("%s:%d\n",argv[0],argc );
