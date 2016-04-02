@@ -29,16 +29,19 @@
 #define PREFIX "http://"
 #define SLASH '/'
 #define SLASH_STR "/"
-
+#define CHUNKED "Transfer-Encoding: chunked"
 #define HTTPV11 "1.1"
 #define HTTPV10 "1.0"
 
 struct url_info_t{
-  char * address;
-  char * base_address;
-  char * path;
-  char * filename;
-  int port_number;
+  char * address;       // whole address
+  char * base_address;  //address which will by used to DNS server
+  char * path;          // path to file (default /)
+  char * filename;      // file name (default index.html)
+  int port_number;      // default (80)
+  int http_code;
+  char *http_version;
+  int chunked;
 };
 
 /*
@@ -47,13 +50,13 @@ struct url_info_t{
 char * apply_rgx(char * rgx, char * string)
 {
     regex_t r;
-    if ((regcomp (&r, rgx, REG_EXTENDED|REG_NEWLINE)) != 0 ) {    // compile regex
+    if ((regcomp (&r, rgx, REG_EXTENDED|REG_NEWLINE)) != 0 ) {   // compile regex
       fprintf(stderr, "FAILED\n" );
       return NULL;
     }
 
     regmatch_t matches[1];
-    if (regexec (&r, string, 1, matches, 0)) {                     // try to match
+    if (regexec (&r, string, 1, matches, 0)) {                   // try to match
       //fprintf(stderr, "NO MATCH\n" );
       return NULL;
     }
@@ -100,11 +103,11 @@ int find_last_char_pos(char *url, char ch)
 /*
 * Cut url
 */
-char * cut_string(char * old_url, int begin, int size)
+char * cut_string(char * old_string, int begin, int size)
 {
   char *new_string = (char *) malloc(size);
   memset(new_string,0,size);
-  memcpy(new_string, &old_url[begin], size);
+  memcpy(new_string, &old_string[begin], size);
   new_string[size] = '\0';
   return new_string;
 }
@@ -161,14 +164,27 @@ int parse_url(struct url_info_t * url, char * url_str)
 }
 
 /*
-* Get the http protocol version from message
+* get http code from HEAD response
 */
-char *get_version (char *reply)
+int http_info(struct url_info_t * url, char * reply)
 {
-  char  *version = (char *)malloc(sizeof(4));
-  strncpy(version, &reply[5], 3);
-  version[3] = '\0';
-  return version;
+  url->http_version = cut_string(reply,5,3);
+  url->http_code = (int)strtol(&reply[9], (char **)NULL, 10);
+  if (strstr(reply,CHUNKED))
+    url->chunked = 1;
+  else
+    url->chunked = 0;
+
+  printf("V:%s\n",url->http_version);
+  printf("C:%d\n",url->http_code);
+  printf("Chuked:%d\n",url->chunked );
+
+  // printf("***********************************\n" );
+  // printf("%s\n",request );
+  // printf("***********************************\n" );
+  // printf("%s\n",reply );
+  return 0;
+
 }
 
 /*
@@ -178,30 +194,10 @@ int download(struct url_info_t * url, int mysocket)
 {
   char reply[1024];         // buffer fo response
   char request[1024];       // buffer which holds message to be sent
- // sprintf(request, "HEAD %s HTTP/1.1\r\nHost: %s\r\nConnection: close \r\n\r\n", url->path, url->base_address);
- //
- // if( send(mysocket, request, strlen(request), 0) == -1) //try to send message
- // {
- //   fprintf(stderr,"SENDERR: %s\n", strerror(errno));
- //   return -1;
- // }
- //
- // if ((recv(mysocket, reply, 999, 0)) == -1)            // receive data
- // {
- //   fprintf(stderr,"RECVERR: %s\n", strerror(errno));
- //   return -1;
- // }
- // printf("***********************************\n" );
- // printf("%s\n",request );
- // printf("***********************************\n" );
- // printf("%s\n",reply );
 
- // char * version = get_version(reply);
- // printf("%s\n",version);
- // printf("%s:%d\n",argv[0],argc );
-   memset(reply, 0, 1024);
-   memset(request, 0, 1024);
-   sprintf(request, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close \r\n\r\n", url->path, url->base_address);
+ memset(reply, 0, 1024);
+ memset(request, 0, 1024);
+ sprintf(request, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close \r\n\r\n", url->path, url->base_address);
  if( send(mysocket, request, strlen(request), 0) == -1) //try to send message
  {
    fprintf(stderr,"SENDERR: %s\n", strerror(errno));
@@ -219,6 +215,7 @@ int download(struct url_info_t * url, int mysocket)
  }
  printf("****************HEADER*******************\n" );
  printf("%s\n",reply);
+ http_info(url, reply);   // provide http version and code from reply
 
  FILE *f = fopen(url->filename,"w");
  char c[1];
@@ -230,7 +227,8 @@ int download(struct url_info_t * url, int mysocket)
  return 0;
 }
 
-
+/* One does no simply
+ write code to main :D */
 int main(int argc, char **argv)
 {
   if (argc != 2) {
