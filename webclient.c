@@ -279,12 +279,21 @@ int main(int argc, char **argv)
   printf("****************REQUEST*******************\n" );
   printf("%s\n",request );
 
-  FILE *f = fopen(url->filename,"w");
-  while ((recv(mysocket, reply, 999, 0)) > 0)            // receive data
+  FILE *f = fopen(url->filename,"a");
+  char * first;
+  int skip_intro = 1;
+  while ((recv(mysocket, reply, 1024, 0)) != 0)            // receive data
   {
-    printf("*****************REPLY******************\n" );
-    fprintf(f,"%s",reply);
-    memset(reply, 0, 1024);
+    printf("*********************************REPLY\n");
+    if (skip_intro && (first = strstr(reply,"\r\n\r\n") + strlen("\r\n\r\n")) != NULL){
+      printf("%s\n",reply );
+      fprintf(f,"%s",first );
+      skip_intro = 0;
+    }
+    else{
+      fprintf(f,"%s",reply );
+      memset(reply, 0, 1024);
+    }
   }
 
   fclose(f);
