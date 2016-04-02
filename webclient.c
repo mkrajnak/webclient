@@ -14,6 +14,7 @@
 #include <regex.h>
 #include <ctype.h>
 #include <unistd.h>
+
 /**
 * REGEXES
 */
@@ -71,15 +72,15 @@ char * apply_rgx(char * rgx, char * string)
     regfree(&r);
     return result;
 }
+
 /*
 * check whether certain character is present within string
 */
 int find_char(char *url, char ch)
 {
   for (size_t i = 0; i < strlen(url); i++) {
-    if (url[i] == ch) {
+    if (url[i] == ch)
       return i; //FOUND
-    }
   }
   return -1;    //NOT FOUND
 }
@@ -90,9 +91,8 @@ int find_char(char *url, char ch)
 int find_last_char_pos(char *url, char ch)
 {
   for (size_t i = strlen(url); i > 0; i--){
-    if (url[i] == ch) {
+    if (url[i] == ch)
       return i+1; //FOUND
-    }
   }
   return -1;    //NOT FOUND
 }
@@ -108,7 +108,6 @@ char * cut_string(char * old_url, int begin, int size)
   new_string[size] = '\0';
   return new_string;
 }
-
 
 /*
 * set the port values properly
@@ -132,6 +131,7 @@ void set_default_values(struct url_info_t * url)
   url->path = SLASH_STR ;
   url->filename = DEFAULT_FILE_NAME;
 }
+
 /*
 * Parse url string to struct
 */
@@ -171,29 +171,84 @@ char *get_version (char *reply)
   return version;
 }
 
-/**
-* Detect and repair white spaces
+/*
+* Function is able to download file given by information in url struct and socket
 */
-// char * whitespaces(char * url)
-// {
-//   return NULL;
-// }
+int download(struct url_info_t * url, int mysocket)
+{
+  char reply[1024];         // buffer fo response
+  char request[1024];       // buffer which holds message to be sent
+ // sprintf(request, "HEAD %s HTTP/1.1\r\nHost: %s\r\nConnection: close \r\n\r\n", url->path, url->base_address);
+ //
+ // if( send(mysocket, request, strlen(request), 0) == -1) //try to send message
+ // {
+ //   fprintf(stderr,"SENDERR: %s\n", strerror(errno));
+ //   return -1;
+ // }
+ //
+ // if ((recv(mysocket, reply, 999, 0)) == -1)            // receive data
+ // {
+ //   fprintf(stderr,"RECVERR: %s\n", strerror(errno));
+ //   return -1;
+ // }
+ // printf("***********************************\n" );
+ // printf("%s\n",request );
+ // printf("***********************************\n" );
+ // printf("%s\n",reply );
+
+ // char * version = get_version(reply);
+ // printf("%s\n",version);
+ // printf("%s:%d\n",argv[0],argc );
+   memset(reply, 0, 1024);
+   memset(request, 0, 1024);
+   sprintf(request, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close \r\n\r\n", url->path, url->base_address);
+ if( send(mysocket, request, strlen(request), 0) == -1) //try to send message
+ {
+   fprintf(stderr,"SENDERR: %s\n", strerror(errno));
+   return -1;
+ }
+ int count = 0;
+ while (strstr(reply,"\r\n\r\n") == NULL)            // HEADER
+ {
+   read(mysocket,&reply[count], 1);
+   count++;
+   if (count >= 1024) {
+     fprintf(stderr, "ERR\n" );
+     break;
+   }
+ }
+ printf("****************HEADER*******************\n" );
+ printf("%s\n",reply);
+
+ FILE *f = fopen(url->filename,"w");
+ char c[1];
+ while (read(mysocket, c, 1) > 0) {
+     fwrite(c, sizeof(char), 1, f);
+ }
+
+ fclose(f);
+ return 0;
+}
 
 
 int main(int argc, char **argv)
 {
   if (argc != 2) {
-    fprintf(stderr,"Invalid number of args\n");
+    fprintf(stderr,"ERR:Invalid number of args\n");
     return -1;
   }
-   struct url_info_t  *url;
 
+  struct url_info_t  *url;
   if ((url = (struct url_info_t *)malloc(sizeof(struct url_info_t))) == NULL) {
     fprintf(stderr, "Alloc error\n" );
     return -1;
   }
+  if (parse_url(url, argv[1])) {
+    fprintf(stderr, "ERR:Problem with parsing entered URL\n" );
+    free(url);
+    return -1;
+  }
   //printf("%s\n", whitespaces (argv[1]));
-   printf("%d\n", parse_url(url, argv[1]));
    printf("*************************\n" );
    printf("ADD:\t%s \n",url->address );
    printf("DNS:\t%s \n",url->base_address);
@@ -245,57 +300,9 @@ int main(int argc, char **argv)
     return -1;
   }
 
-   char reply[1024];         // buffer fo response
-   char request[1024];       // buffer which holds message to be sent
-  // sprintf(request, "HEAD %s HTTP/1.1\r\nHost: %s\r\nConnection: close \r\n\r\n", url->path, url->base_address);
-  //
-  // if( send(mysocket, request, strlen(request), 0) == -1) //try to send message
-  // {
-  //   fprintf(stderr,"SENDERR: %s\n", strerror(errno));
-  //   return -1;
-  // }
-  //
-  // if ((recv(mysocket, reply, 999, 0)) == -1)            // receive data
-  // {
-  //   fprintf(stderr,"RECVERR: %s\n", strerror(errno));
-  //   return -1;
-  // }
-  // printf("***********************************\n" );
-  // printf("%s\n",request );
-  // printf("***********************************\n" );
-  // printf("%s\n",reply );
-
-  // char * version = get_version(reply);
-  // printf("%s\n",version);
-  // printf("%s:%d\n",argv[0],argc );
-    memset(reply, 0, 1024);
-    memset(request, 0, 1024);
-    sprintf(request, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close \r\n\r\n", url->path, url->base_address);
-  if( send(mysocket, request, strlen(request), 0) == -1) //try to send message
+  if(download(url,mysocket) != 0) //all prepared try to download image
   {
-    fprintf(stderr,"SENDERR: %s\n", strerror(errno));
     return -1;
   }
-  int count = 0;
-  while (strstr(reply,"\r\n\r\n") == NULL)            // HEADER
-  {
-    read(mysocket,&reply[count], 1);
-    count++;
-    if (count >= 1024) {
-      fprintf(stderr, "ERR\n" );
-      break;
-    }
-  }
-  printf("****************HEADER*******************\n" );
-  printf("%s\n",reply);
-
-  FILE *f = fopen(url->filename,"w");
-  char c[1];
-  while (read(mysocket, c, 1) > 0) {
-			fwrite(c, sizeof(char), 1, f);
-	}
-
-  fclose(f);
-  //free(version);
   return 0;
 }
