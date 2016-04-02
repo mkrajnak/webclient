@@ -13,7 +13,7 @@
 #include <errno.h>
 #include <regex.h>
 #include <ctype.h>
-
+#include <unistd.h>
 /**
 * REGEXES
 */
@@ -276,25 +276,24 @@ int main(int argc, char **argv)
     fprintf(stderr,"SENDERR: %s\n", strerror(errno));
     return -1;
   }
-  printf("****************REQUEST*******************\n" );
-  printf("%s\n",request );
-
-  FILE *f = fopen(url->filename,"a");
-  char * first;
-  int skip_intro = 1;
-  while ((recv(mysocket, reply, 1024, 0)) != 0)            // receive data
+  int count = 0;
+  while (strstr(reply,"\r\n\r\n") == NULL)            // HEADER
   {
-    printf("*********************************REPLY\n");
-    if (skip_intro && (first = strstr(reply,"\r\n\r\n") + strlen("\r\n\r\n")) != NULL){
-      printf("%s\n",reply );
-      fprintf(f,"%s",first );
-      skip_intro = 0;
-    }
-    else{
-      fprintf(f,"%s",reply );
-      memset(reply, 0, 1024);
+    read(mysocket,&reply[count], 1);
+    count++;
+    if (count >= 1024) {
+      fprintf(stderr, "ERR\n" );
+      break;
     }
   }
+  printf("****************HEADER*******************\n" );
+  printf("%s\n",reply);
+
+  FILE *f = fopen(url->filename,"w");
+  char c[1];
+  while (read(mysocket, c, 1) > 0) {
+			fwrite(c, sizeof(char), 1, f);
+	}
 
   fclose(f);
   //free(version);
