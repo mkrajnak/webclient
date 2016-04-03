@@ -33,8 +33,8 @@
 #define HTTPV11 "1.1"
 #define HTTPV10 "1.0"
 
-#define ESCAPE_WHITESPACE "%%20"
-#define ESCAPE_TILDE "%%7E"
+#define ESCAPE_WHITESPACE "%20"
+#define ESCAPE_TILDE "%7E"
 
 struct url_info_t{
   char * address;       // whole address
@@ -132,7 +132,11 @@ void set_port(struct url_info_t * url)
 */
 void set_default_values(struct url_info_t * url)
 {
-  url->base_address = apply_rgx(URL_RGX,url->address);
+  if( (url->base_address = (char *) malloc(strlen(url->address))) == NULL){
+     fprintf(stderr, "MALLOC ERR\n" );
+  }
+  memcpy(url->base_address,url->address,strlen(url->address));
+  url->base_address[strlen(url->address)] = '\0';
   url->path = SLASH_STR ;
   url->filename = DEFAULT_FILE_NAME;
 }
@@ -179,9 +183,9 @@ int parse_url(struct url_info_t * url, char * url_str)
 
   url->base_address = apply_rgx(URL_RGX,url->address);
 
+  url->address = escape(url->address,' ',ESCAPE_WHITESPACE);
+  url->address = escape(url->address,'~',ESCAPE_TILDE);
   url->path = strstr(url->address,SLASH_STR);
-  url->path = escape(url->path,' ',ESCAPE_WHITESPACE);
-  url->path = escape(url->path,'~',ESCAPE_TILDE);
 
   int cut_filename = find_last_char_pos(url->path,SLASH);
   url->filename = cut_string(url->path, cut_filename, strlen(url->address) - cut_filename);
@@ -206,8 +210,6 @@ int http_info(struct url_info_t * url, char * reply)
   printf("C:%d\n",url->http_code);
   printf("Chuked:%d\n",url->chunked );
 
-  // printf("***********************************\n" );
-  // printf("%s\n",request );
   // printf("***********************************\n" );
   // printf("%s\n",reply );
   return 0;
@@ -271,6 +273,8 @@ int download(struct url_info_t * url, int mysocket)
    fprintf(stderr,"SENDERR: %s\n", strerror(errno));
    return -1;
  }
+ printf("***********REQ*****************\n" );
+ printf("%s\n",request );
  read_until(mysocket, reply, "\r\n\r\n",1024);
 
  printf("****************HEADER*******************\n" );
