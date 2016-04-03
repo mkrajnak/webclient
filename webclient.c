@@ -19,9 +19,9 @@
 * REGEXES
 */
 #define URL_RGX "(www.[a-zA-z0-9\\.]*)"
-#define FILENAME_RGX "([0-9A-Za-z\\.\\_\\ ]*)$"
-#define PORT_NUMBER_RGX "(:{1}[0-9]+)"
-#define WHITE_SPACE "([\\ ~]+)"
+#define FILENAME_RGX "[0-9A-Za-z\\.\\_\\ ]*$"
+#define PORT_NUMBER_RGX ":{1}[0-9]+"
+#define WHITE_SPACE "[\\ ~]+"
 
 #define DEFAULT_FILE_NAME "index.html"
 #define DEFAULT_PORT_NUMBER 80
@@ -46,6 +46,75 @@ struct url_info_t{
   char *http_version;
   int chunked;
 };
+
+int download(struct url_info_t **url, int mysocket);
+
+/*
+* INIT struct
+*/
+int init(struct url_info_t * url){
+
+  url->base_address = NULL;
+  url->path = NULL;
+  url->http_version = NULL;
+  url->filename = NULL;
+  url->port_number = 0;
+  url->chunked = 0;
+  url->http_code = 0;
+
+  return 0;
+}
+/*
+* INITIOALIZING connection
+*/
+int init_connection(struct url_info_t *url)
+{
+  if ( url == NULL) {
+    return -1;
+  }
+  // printf("**********CONNECTING***************\n" );
+  //    printf("ADD:\t%s \n",url->address );
+  //    printf("DNS:\t%s \n",url->base_address);
+  //    printf("PATH:\t%s \n",url->path );
+  //    printf("FILE\t%s \n",url->filename);
+  //    printf("Port:\t%d\n",url->port_number );
+
+  struct hostent *web_address;
+  if (!strcmp(url->base_address,FIT)){ //hack for fit url
+    web_address = gethostbyname(FIT);
+  }
+  else
+    web_address = gethostbyname(url->base_address);
+
+
+  if ( web_address == NULL) {                         //check if translation was succesfull
+    fprintf(stderr,"DNSERR: %s\n", strerror(errno));
+    return -1;
+  }
+  // in_addr is struct required by inet_ntoa
+  // which is needed to translate from network byte order
+  struct in_addr ip_addr;
+  memcpy(&ip_addr, web_address->h_addr_list[0], sizeof(struct in_addr));
+
+  int mysocket;
+   if((mysocket = socket(AF_INET, SOCK_STREAM, 0)) == -1) { // creating socket
+     fprintf(stderr,"SOCKERR: %s\n", strerror(errno));
+     return -1;
+   }
+
+  struct sockaddr_in dest;
+  memset(&dest, 0, sizeof(dest));                       // setting up struct for connect
+  dest.sin_family = AF_INET;
+  dest.sin_addr.s_addr = inet_addr(inet_ntoa(ip_addr)); // setting properly destination ip address
+  dest.sin_port = htons(url->port_number);              // set destination port
+
+  if(connect(mysocket, (struct sockaddr *)&dest, sizeof(struct sockaddr)) == -1 )
+  {
+    fprintf(stderr,"CONNERR: %s\n", strerror(errno));
+    return -1;
+  }
+  return mysocket;
+}
 
 /*
 * Fnction returns string matches by regex
@@ -91,7 +160,7 @@ int find_char(char *url, char ch)
 }
 
 /*
-* Last char
+* Find last char
 */
 int find_last_char_pos(char *url, char ch)
 {
@@ -107,7 +176,7 @@ int find_last_char_pos(char *url, char ch)
 */
 char * cut_string(char * old_string, int begin, int size)
 {
-  char *new_string = (char *) malloc(size);
+  char *new_string = (char *) malloc(size+1);
   memset(new_string,0,size);
   memcpy(new_string, &old_string[begin], size);
   new_string[size] = '\0';
@@ -115,24 +184,11 @@ char * cut_string(char * old_string, int begin, int size)
 }
 
 /*
-* set the port values properly
-*/
-void set_port(struct url_info_t * url)
-{
-  char * port;
-  if (( port = apply_rgx(PORT_NUMBER_RGX, url->address)) != NULL)
-    url->port_number = (int)strtol(&port[1], (char **)NULL, 10);
-  else
-    url->port_number = DEFAULT_PORT_NUMBER;
-
-}
-
-/*
 * Set default values for filename and base_address
 */
 void set_default_values(struct url_info_t * url)
 {
-  if( (url->base_address = (char *) malloc(strlen(url->address))) == NULL){
+  if( (url->base_address = (char *) malloc(strlen(url->address)+1)) == NULL){
      fprintf(stderr, "MALLOC ERR\n" );
   }
   memcpy(url->base_address,url->address,strlen(url->address));
@@ -149,16 +205,16 @@ char * escape(char * url, char c, char * escape)
   int i = 0; int alloc = 0;
   while ( (i = find_char(url,c)) != -1 ) {  //find character position
 
-    char * new_url = malloc(strlen(url) + strlen(escape));
+    char * new_url = malloc(strlen(url) + strlen(escape));  //alloc new
     memcpy(new_url,&url[0],i);
     memcpy(&new_url[i],escape,strlen(escape));
     memcpy(&new_url[i + strlen(escape)],&url[i+1],strlen(url) - i);
-    if (alloc) {
+    if (alloc) {  //do not try to unnaloc first string
         free(url);
         url = (char *)realloc(url,strlen(url)+strlen(escape));
         alloc = 1;
     }
-    url = new_url;
+    url = new_url;  //point back
   }
   return url;
 }
@@ -168,28 +224,55 @@ char * escape(char * url, char c, char * escape)
 */
 int parse_url(struct url_info_t * url, char * url_str)
 {
+  url->http_version = "1.1";
+  if ((url->address = (char *)malloc(strlen(url_str)+1)) == NULL) {
+    fprintf(stderr, "Alloc error\n" );
+    return -1;
+  }
+  memcpy(url->address,url_str,strlen(url_str));
   // get rid of http
-  if (strstr(url_str,PREFIX) == NULL)
+  if (strstr(url->address,PREFIX) == NULL)
       return -1;
   else
-    url->address = strstr(url_str,PREFIX) + strlen(PREFIX);
+    url->address = strstr(url->address,PREFIX) + strlen(PREFIX);
+    //url->address[strlen(url->address)] = '\0';
+
   // shot url without slashes, setting default values
   if (strstr(url->address,SLASH_STR) == NULL){
       set_default_values(url);
-      set_port(url);
+      url->port_number = DEFAULT_PORT_NUMBER;
       return 0;
   }
   //url with path and filename
-
-  url->base_address = apply_rgx(URL_RGX,url->address);
-
-  url->address = escape(url->address,' ',ESCAPE_WHITESPACE);
-  url->address = escape(url->address,'~',ESCAPE_TILDE);
   url->path = strstr(url->address,SLASH_STR);
 
-  int cut_filename = find_last_char_pos(url->path,SLASH);
-  url->filename = cut_string(url->path, cut_filename, strlen(url->address) - cut_filename);
-  set_port(url);
+  if (strcmp(url->path,SLASH_STR) == 0) { // /
+    url->filename = DEFAULT_FILE_NAME;
+  }
+  else{                                   // full address
+    int cut_filename = find_last_char_pos(url->address,SLASH);
+    url->filename = cut_string(url->address, cut_filename, strlen(url->address) - cut_filename);
+  }
+  //cutting port
+  int port_len = 0;
+  char * port = NULL;
+  if (( port = apply_rgx(PORT_NUMBER_RGX, url->address)) != NULL){
+    url->port_number = (int)strtol(&port[1], (char **)NULL, 10);
+    port_len=strlen(port);
+  }
+  else
+    url->port_number = DEFAULT_PORT_NUMBER;
+    //cutting base address
+  url->base_address = malloc(strlen(url->address) - strlen(url->path) - port_len + 1 );
+  strncpy(url->base_address,url->address,strlen(url->address) - strlen(url->path) - port_len);
+  url->base_address[strlen(url->address) - strlen(url->path)- port_len] = '\0';
+
+  url->path = escape(url->path,' ',ESCAPE_WHITESPACE);
+  url->path = escape(url->path,'~',ESCAPE_TILDE);
+
+
+  //url->path[strlen(url->path)] = '\0';
+  //printf("as%s\n",url->address );
   return 0;
 }
 
@@ -197,21 +280,15 @@ int parse_url(struct url_info_t * url, char * url_str)
 /*
 * get http code from HEAD response
 */
-int http_info(struct url_info_t * url, char * reply)
+int http_info(struct url_info_t ** url, char * reply)
 {
-  url->http_version = cut_string(reply,5,3);
-  url->http_code = (int)strtol(&reply[9], (char **)NULL, 10);
+  (*url)->http_version = cut_string(reply,5,3);
+  (*url)->http_code = (int)strtol(&reply[9], (char **)NULL, 10);
   if (strstr(reply,CHUNKED))
-    url->chunked = 1;
+    (*url)->chunked = 1;
   else
-    url->chunked = 0;
+    (*url)->chunked = 0;
 
-  printf("V:%s\n",url->http_version);
-  printf("C:%d\n",url->http_code);
-  printf("Chuked:%d\n",url->chunked );
-
-  // printf("***********************************\n" );
-  // printf("%s\n",reply );
   return 0;
 
 }
@@ -239,16 +316,25 @@ int read_until(int mysocket, char  * buffer, char * needle, int buffer_size)
 /*
 * read from socket and write
 */
-int write_to_file(struct url_info_t *url, int mysocket,unsigned int buffer_size)
+int write_to_file(struct url_info_t **url, int mysocket,unsigned int buffer_size)
 {
   FILE *f;
-  if ((f = fopen(url->filename,"w")) == NULL) {
+  if ((f = fopen((*url)->filename,"w")) == NULL) {
     return -1;
   }
+  int zero_counter = 0;
   char buffer[buffer_size];
-  while (read(mysocket, buffer, buffer_size) > 0) {
-    if (url->chunked && buffer[0] == '\r' ) {
-      buffer[0] = '\0';
+  while (read(mysocket, buffer, buffer_size) > 0) { //read data
+    if ((*url)->chunked){
+      if (buffer[0] == '\r'){ //trasnfer \r to \0
+        buffer[0] = '\0';
+        zero_counter = 0;
+      }
+      if (zero_counter == 2 && buffer[0] == '0') { //cut zero at the end
+        fclose(f);
+        return 0;
+      }
+      zero_counter++;
     }
     fwrite(buffer, sizeof(char), buffer_size, f);
     memset(buffer, 0, buffer_size);
@@ -258,42 +344,33 @@ int write_to_file(struct url_info_t *url, int mysocket,unsigned int buffer_size)
 }
 
 /*
-* Function is able to download file given by information in url struct and socket
+* redturn new struct on redirest
 */
-int download(struct url_info_t * url, int mysocket)
+struct url_info_t * redirect(char * url_str)
 {
-  char reply[1024];         // buffer fo response
-  char request[1024];       // buffer which holds message to be sent
- memset(reply, 0, 1024);
- memset(request, 0, 1024);
+  if ( url_str == NULL) {
+    fprintf(stderr,"ERROR NO URL\n" );
+    return NULL;
+  }
+  for (unsigned int i = 0; i < strlen(url_str); i++) {
+    if (url_str[i] == '\r') {
+        url_str[i] = '\0';
+    }
+  }
+  struct url_info_t  *new_url = NULL;
+  if ((new_url = (struct url_info_t *)malloc(sizeof(struct url_info_t))) == NULL) {
+    fprintf(stderr, "Alloc error\n" );
+    return NULL;
+  }
+  init(new_url);
+  int p = parse_url(new_url,url_str);
+  if (p) {
+    fprintf(stderr, "ERR:Problem with parsing entered URL\n" );
+    free(new_url);
+    return NULL;
+  }
 
- sprintf(request, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close \r\n\r\n", url->path, url->base_address);
- if( send(mysocket, request, strlen(request), 0) == -1) //try to send message
- {
-   fprintf(stderr,"SENDERR: %s\n", strerror(errno));
-   return -1;
- }
- printf("***********REQ*****************\n" );
- printf("%s\n",request );
- read_until(mysocket, reply, "\r\n\r\n",1024);
-
- printf("****************HEADER*******************\n" );
- printf("%s\n",reply);
-
- http_info(url, reply);   // provide http version and code from reply
-
- if (url->http_code >= 400) {
-   fprintf(stderr, "HTTP ERROR:%d\n",url->http_code );
-   return -1;
- }
-
- if (url->chunked) { // determine chunk size
-   memset(reply, 0, 1024);
-   read_until(mysocket, reply, "\r\n",1024);
- }
-  write_to_file(url, mysocket, 1);
-
- return 0;
+  return new_url;
 }
 
 /* One does not simply
@@ -305,72 +382,81 @@ int main(int argc, char **argv)
     return -1;
   }
 
-  struct url_info_t  *url;
+  struct url_info_t  *url = NULL;
   if ((url = (struct url_info_t *)malloc(sizeof(struct url_info_t))) == NULL) {
     fprintf(stderr, "Alloc error\n" );
     return -1;
   }
-  if (parse_url(url, argv[1])) {
+  init(url);
+  if (parse_url(url,argv[1])) {
     fprintf(stderr, "ERR:Problem with parsing entered URL\n" );
     free(url);
     return -1;
   }
-  //printf("%s\n", whitespaces (argv[1]));
-   printf("*************************\n" );
-   printf("ADD:\t%s \n",url->address );
-   printf("DNS:\t%s \n",url->base_address);
-   printf("PATH:\t%s \n",url->path );
-   printf("FILE\t%s \n",url->filename);
-   printf("Port:\t%d\n",url->port_number );
-  // free(url->base_address);
-  // free(url->filename);
-  //  free(url->address);
-  //  free(url);
-
-  // printf("%ld\n", (int)strlen(FIT)-strlen(PREFIX));
-  // printf("%s\n",cut_string(argv[1],7,strlen(FIT)-strlen(PREFIX)) );
-  // printf("%d\n",check_prefix(argv[1]));
-  // printf("%d\n",find_char(argv[1],SLASH));
-  // return 0;
-
-  struct hostent *web_address;
-  if (!strcmp(url->base_address,FIT)) //hack for fit url
-    web_address = gethostbyname(FIT);
-  else
-    web_address = gethostbyname(url->base_address);
-
-
-  if ( web_address == NULL) {                         //check if translation was succesfull
-    fprintf(stderr,"DNSERR: %s\n", strerror(errno));
-    return -1;
-  }
-  // in_addr is struct required by inet_ntoa
-  // which is needed to translate from network byte order
-  struct in_addr ip_addr;
-  memcpy(&ip_addr, web_address->h_addr_list[0], sizeof(struct in_addr));
-  printf("%s\n",inet_ntoa(ip_addr));
-
-  int mysocket;
-   if((mysocket = socket(AF_INET, SOCK_STREAM, 0)) == -1) { // creating socket
-     fprintf(stderr,"SOCKERR: %s\n", strerror(errno));
-     return -1;
-   }
-
-  struct sockaddr_in dest;
-  memset(&dest, 0, sizeof(dest));                       // setting up struct for connect
-  dest.sin_family = AF_INET;
-  dest.sin_addr.s_addr = inet_addr(inet_ntoa(ip_addr)); // setting properly destination ip address
-  dest.sin_port = htons(url->port_number);              // set destination port
-
-  if(connect(mysocket, (struct sockaddr *)&dest, sizeof(struct sockaddr)) == -1 )
+  int d = 1; int version = 0;
+  while(d != 0 ) //all prepared try to download image
   {
-    fprintf(stderr,"CONNERR: %s\n", strerror(errno));
-    return -1;
+    int mysocket = init_connection(url);
+    d = download(&url,mysocket);
+    if (d == -1 || mysocket == -1)
+      return -1;
+    if ( d == 400) {
+      if (version) {
+        return -1;
+      }
+      url->http_version = "1.0";
+      version = 1;
+    }
   }
-
-  if(download(url,mysocket) != 0) //all prepared try to download image
-  {
-    return -1;
-  }
+  free(url);
   return 0;
+}
+
+/*
+* Function is able to download file given by information in url struct and socket
+*/
+int download(struct url_info_t **url, int mysocket)
+{
+  static int redirect_count = 0;
+  char reply[1024];         // buffer fo response
+  char request[1024];       // buffer which holds message to be sent
+  memset(reply, 0, 1024);
+  memset(request, 0, 1024);
+
+  sprintf(request, "GET %s HTTP/%s\r\nHost: %s\r\nConnection: close \r\n\r\n", (char *)(*url)->path, (*url)->http_version ,(char *)(*url)->base_address);
+  if( send(mysocket, request, strlen(request), 0) == -1) //try to send message
+  {
+    fprintf(stderr,"SENDERR: %s\n", strerror(errno));
+    return -1;
+  }
+  //printf("REUQEST\n%s\n",request );
+  read_until(mysocket, reply, "\r\n\r\n",1024);
+  //printf("REPLY:\n%s\n",reply );
+  http_info(url, reply);   // provide http version and code from reply
+
+  if ((*url)->http_code >= 400) {
+    fprintf(stderr, "HTTP ERROR:%d\n",(*url)->http_code );
+    return 400;
+  }
+  //printf("%d\n", (*url)->http_code);
+  if ((*url)->http_code >= 301) {
+    struct url_info_t *old_url;
+    old_url = (*url);
+    (*url) = redirect(strstr(reply, "Location: ") + strlen("Location: ")); //parse new location
+    free(old_url);                                          // get rid of old
+    if ((*url) == NULL) {
+      return -1;
+    }
+    if (redirect_count < 5){
+      return 300;
+    }
+  }
+
+  if ((*url)->chunked) { // determine chunk size
+    memset(reply, 0, 1024);
+    read_until(mysocket, reply, "\r\n",1024);
+  }
+  write_to_file(url, mysocket, 1);
+
+ return 0;
 }
