@@ -21,7 +21,7 @@
 #define URL_RGX "(www.[a-zA-z0-9\\.]*)"
 #define FILENAME_RGX "([0-9A-Za-z\\.\\_\\ ]*)$"
 #define PORT_NUMBER_RGX "(:{1}[0-9]+)"
-#define WHITE_SPACE "[\\ ]"
+#define WHITE_SPACE "([\\ ~]+)"
 
 #define DEFAULT_FILE_NAME "index.html"
 #define DEFAULT_PORT_NUMBER 80
@@ -32,6 +32,9 @@
 #define CHUNKED "Transfer-Encoding: chunked"
 #define HTTPV11 "1.1"
 #define HTTPV10 "1.0"
+
+#define ESCAPE_WHITESPACE "%%20"
+#define ESCAPE_TILDE "%%7E"
 
 struct url_info_t{
   char * address;       // whole address
@@ -70,8 +73,7 @@ char * apply_rgx(char * rgx, char * string)
     strncpy(result, &string[matches[0].rm_so], matches[0].rm_eo - matches[0].rm_so );
 
     //  printf("a matched substring \"%s\" is found at position %d to %d.\n",
-    //        result, matches[0].rm_so, matches[0].rm_eo - 1);
-
+    //  result, matches[0].rm_so, matches[0].rm_eo - 1);
     regfree(&r);
     return result;
 }
@@ -81,7 +83,7 @@ char * apply_rgx(char * rgx, char * string)
 */
 int find_char(char *url, char ch)
 {
-  for (size_t i = 0; i < strlen(url); i++) {
+  for (size_t i = 0; i < strlen(url) ; i++) {
     if (url[i] == ch)
       return i; //FOUND
   }
@@ -118,9 +120,9 @@ char * cut_string(char * old_string, int begin, int size)
 void set_port(struct url_info_t * url)
 {
   char * port;
-  if (( port = apply_rgx(PORT_NUMBER_RGX, url->address)) != NULL) {
+  if (( port = apply_rgx(PORT_NUMBER_RGX, url->address)) != NULL)
     url->port_number = (int)strtol(&port[1], (char **)NULL, 10);
-  }else
+  else
     url->port_number = DEFAULT_PORT_NUMBER;
 
 }
@@ -136,6 +138,28 @@ void set_default_values(struct url_info_t * url)
 }
 
 /*
+* escape wrong characters
+*/
+char * escape(char * url, char c, char * escape)
+{
+  int i = 0; int alloc = 0;
+  while ( (i = find_char(url,c)) != -1 ) {  //find character position
+
+    char * new_url = malloc(strlen(url) + strlen(escape));
+    memcpy(new_url,&url[0],i);
+    memcpy(&new_url[i],escape,strlen(escape));
+    memcpy(&new_url[i + strlen(escape)],&url[i+1],strlen(url) - i);
+    if (alloc) {
+        free(url);
+        url = (char *)realloc(url,strlen(url)+strlen(escape));
+        alloc = 1;
+    }
+    url = new_url;
+  }
+  return url;
+}
+
+/*
 * Parse url string to struct
 */
 int parse_url(struct url_info_t * url, char * url_str)
@@ -145,7 +169,6 @@ int parse_url(struct url_info_t * url, char * url_str)
       return -1;
   else
     url->address = strstr(url_str,PREFIX) + strlen(PREFIX);
-
   // shot url without slashes, setting default values
   if (strstr(url->address,SLASH_STR) == NULL){
       set_default_values(url);
@@ -153,15 +176,19 @@ int parse_url(struct url_info_t * url, char * url_str)
       return 0;
   }
   //url with path and filename
-  url->path = strstr(url->address,SLASH_STR);
-
-  int cut_filename = find_last_char_pos(url->address,SLASH);
-  url->filename = cut_string(url->address, cut_filename, strlen(url->address) - cut_filename);
 
   url->base_address = apply_rgx(URL_RGX,url->address);
+
+  url->path = strstr(url->address,SLASH_STR);
+  url->path = escape(url->path,' ',ESCAPE_WHITESPACE);
+  url->path = escape(url->path,'~',ESCAPE_TILDE);
+
+  int cut_filename = find_last_char_pos(url->path,SLASH);
+  url->filename = cut_string(url->path, cut_filename, strlen(url->address) - cut_filename);
   set_port(url);
   return 0;
 }
+
 
 /*
 * get http code from HEAD response
@@ -188,46 +215,84 @@ int http_info(struct url_info_t * url, char * reply)
 }
 
 /*
+* READ data until you find needle in it ("\r\n")
+*/
+int read_until(int mysocket, char  * buffer, char * needle, int buffer_size)
+{
+  int position = 0;
+  while (strstr(buffer,needle) == NULL)            // HEADER
+  {
+    if ((read(mysocket,&buffer[position], 1)) == -1) {
+      return -1;
+    }
+    if (position > buffer_size) {   // prevent leaking
+      fprintf(stderr, "ERR:%d\n",position );
+      return -1;
+    }
+    position++;
+  }
+  return 0;
+}
+
+/*
+* read from socket and write
+*/
+int write_to_file(struct url_info_t *url, int mysocket,unsigned int buffer_size)
+{
+  FILE *f;
+  if ((f = fopen(url->filename,"w")) == NULL) {
+    return -1;
+  }
+  char buffer[buffer_size];
+  while (read(mysocket, buffer, buffer_size) > 0) {
+    if (url->chunked && buffer[0] == '\r' ) {
+      buffer[0] = '\0';
+    }
+    fwrite(buffer, sizeof(char), buffer_size, f);
+    memset(buffer, 0, buffer_size);
+  }
+  fclose(f);
+  return 0;
+}
+
+/*
 * Function is able to download file given by information in url struct and socket
 */
 int download(struct url_info_t * url, int mysocket)
 {
   char reply[1024];         // buffer fo response
   char request[1024];       // buffer which holds message to be sent
-
  memset(reply, 0, 1024);
  memset(request, 0, 1024);
+
  sprintf(request, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close \r\n\r\n", url->path, url->base_address);
  if( send(mysocket, request, strlen(request), 0) == -1) //try to send message
  {
    fprintf(stderr,"SENDERR: %s\n", strerror(errno));
    return -1;
  }
- int count = 0;
- while (strstr(reply,"\r\n\r\n") == NULL)            // HEADER
- {
-   read(mysocket,&reply[count], 1);
-   count++;
-   if (count >= 1024) {
-     fprintf(stderr, "ERR\n" );
-     break;
-   }
- }
+ read_until(mysocket, reply, "\r\n\r\n",1024);
+
  printf("****************HEADER*******************\n" );
  printf("%s\n",reply);
+
  http_info(url, reply);   // provide http version and code from reply
 
- FILE *f = fopen(url->filename,"w");
- char c[1];
- while (read(mysocket, c, 1) > 0) {
-     fwrite(c, sizeof(char), 1, f);
+ if (url->http_code >= 400) {
+   fprintf(stderr, "HTTP ERROR:%d\n",url->http_code );
+   return -1;
  }
 
- fclose(f);
+ if (url->chunked) { // determine chunk size
+   memset(reply, 0, 1024);
+   read_until(mysocket, reply, "\r\n",1024);
+ }
+  write_to_file(url, mysocket, 1);
+
  return 0;
 }
 
-/* One does no simply
+/* One does not simply
  write code to main :D */
 int main(int argc, char **argv)
 {
@@ -255,7 +320,8 @@ int main(int argc, char **argv)
    printf("Port:\t%d\n",url->port_number );
   // free(url->base_address);
   // free(url->filename);
-  // free(url);
+  //  free(url->address);
+  //  free(url);
 
   // printf("%ld\n", (int)strlen(FIT)-strlen(PREFIX));
   // printf("%s\n",cut_string(argv[1],7,strlen(FIT)-strlen(PREFIX)) );
@@ -290,7 +356,7 @@ int main(int argc, char **argv)
   memset(&dest, 0, sizeof(dest));                       // setting up struct for connect
   dest.sin_family = AF_INET;
   dest.sin_addr.s_addr = inet_addr(inet_ntoa(ip_addr)); // setting properly destination ip address
-  dest.sin_port = htons(url->port_number);                            // set destination port
+  dest.sin_port = htons(url->port_number);              // set destination port
 
   if(connect(mysocket, (struct sockaddr *)&dest, sizeof(struct sockaddr)) == -1 )
   {
